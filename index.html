@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Space Crew: Smart AI Edition</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0b0c10;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #menuBox {
+            background-color: #1f2833;
+            padding: 30px;
+            border-radius: 8px;
+            border: 2px solid #45f3ff;
+            text-align: center;
+        }
+        .btn {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            margin: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #ffffff;
+        }
+        .crew-btn { background-color: #00e5ff; color: #0b0c10; }
+        .imp-btn { background-color: #ff1744; }
+        #gameUi { display: none; text-align: center; }
+        canvas {
+            border: 3px solid #1f2833;
+            background-color: #05080c;
+        }
+        #textHeader {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ??? START MENU -->
+<div id="menuBox">
+    <h2>CHOOSE YOUR DESIGNATION</h2>
+    <button class="btn crew-btn" onclick="launch('Crewmate')">CREWMATE</button>
+    <button class="btn imp-btn" onclick="launch('Impostor')">IMPOSTOR</button>
+</div>
+
+<!-- ?? GAME SCREEN -->
+<div id="gameUi">
+    <div id="textHeader">ROLE: <span id="myRoleLabel">None</span> | <span id="taskLabel" style="color: #ffff00;">Tasks Completed: 0/2</span></div>
+    <canvas id="gameArea" width="700" height="450"></canvas>
+    <p style="color: #c5a880; font-size: 13px;">Move with <strong>WASD / Arrow Keys</strong>. Walk up to yellow blocks and press <strong>SPACEBAR</strong> to fix tasks!</p>
+</div>
+
+<script>
+let isGameRunning = false;
+let currentRole = "Crewmate";
+const canvas = document.getElementById("gameArea");
+const ctx = canvas.getContext("2d");
+
+// Entities (Adjusted speeds so you can catch the bot)
+const player = { x: 150, y: 225, radius: 15, speed: 4.2, color: "#00E5FF", score: 0 };
+const enemy = { x: 550, y: 225, radius: 15, speed: 1.8, color: "#FF1744" };
+
+const blocks = [ { x: 300, y: 150, w: 100, h: 150, name: "Table" } ];
+
+// Tasks list
+const targets = [
+    { x: 100, y: 60, w: 30, h: 30, color: "#FFEA00", done: false },
+    { x: 570, y: 360, w: 30, h: 30, color: "#FFEA00", done: false }
+];
+
+const keysPressed = {};
+
+window.addEventListener("keydown", function(e) { 
+    keysPressed[e.key.toLowerCase()] = true; 
+    if ((e.key === " " || e.code === "Space") && isGameRunning) {
+        doTaskAction();
+    }
+});
+window.addEventListener("keyup", function(e) { keysPressed[e.key.toLowerCase()] = false; });
+
+function launch(selectedRole) {
+    currentRole = selectedRole;
+    
+    if (currentRole === "Impostor") {
+        player.color = "#FF1744";
+        enemy.color = "#00E5FF";
+        document.getElementById("myRoleLabel").style.color = "#FF1744";
+        document.getElementById("taskLabel").textContent = "Stop the Cyan Crewmate before it fixes both panels!";
+    } else {
+        player.color = "#00E5FF";
+        enemy.color = "#FF1744";
+        document.getElementById("myRoleLabel").style.color = "#00E5FF";
+        document.getElementById("taskLabel").textContent = "Tasks Completed: 0 / 2";
+    }
+
+    document.getElementById("myRoleLabel").textContent = currentRole.toUpperCase();
+    document.getElementById("menuBox").style.display = "none";
+    document.getElementById("gameUi").style.display = "block";
+    
+    isGameRunning = true;
+    gameLoop();
+}
+
+function doTaskAction() {
+    if (currentRole !== "Crewmate") return; // Only human crewmates manually do tasks on spacebar
+    
+    targets.forEach(t => {
+        let xDist = Math.abs(player.x - (t.x + 15));
+        let yDist = Math.abs(player.y - (t.y + 15));
+        if (xDist < 45 && yDist < 45 && !t.done) {
+            t.done = true;
+            t.color = "#00E676";
+            player.score++;
+            document.getElementById("taskLabel").textContent = "Tasks Completed: " + player.score + " / 2";
+            
+            if (player.score >= 2) {
+                stopGame("VICTORY! Systems fully operational.");
+            }
+        }
+    });
+}
+
+function updateGame() {
+    if (!isGameRunning) return;
+
+    const oldX = player.x;
+    const oldY = player.y;
+
+    // Human Movement handling
+    if (keysPressed["w"] || keysPressed["arrowup"]) player.y -= player.speed;
+    if (keysPressed["s"] || keysPressed["arrowdown"]) player.y += player.speed;
+    if (keysPressed["a"] || keysPressed["arrowleft"]) player.x -= player.speed;
+    if (keysPressed["d"] || keysPressed["arrowright"]) player.x += player.speed;
+
+    if (player.x < player.radius) player.x = player.radius;
+    if (player.x > canvas.width - player.radius) player.x = canvas.width - player.radius;
+    if (player.y < player.radius) player.y = player.radius;
+    if (player.y > canvas.height - player.radius) player.y = canvas.height - player.radius;
+
+    blocks.forEach(b => {
+        if (player.x + player.radius > b.x && player.x - player.radius < b.x + b.w &&
+            player.y + player.radius > b.y && player.y - player.radius < b.y + b.h) {
+            player.x = oldX; player.y = oldY;
+        }
+    });
+
+    // --- AI LOGIC PROCESSING ---
+    if (currentRole === "Crewmate") {
+        // Red enemy bot hunts your coordinates directly
+        if (enemy.x < player.x) enemy.x += enemy.speed;
+        if (enemy.x > player.x) enemy.x -= enemy.speed;
+        if (enemy.y < player.y) enemy.y += enemy.speed;
+        if (enemy.y > player.y) enemy.y -= enemy.speed;
+    } else {
+        // Cyan Crewmate Bot Pathfinding Strategy:
+        // Find the first task target in our list that isn't finished yet
+        let nextTask = null;
+        if (!targets[0].done) {
+            nextTask = targets[0];
+        } else if (!targets[1].done) {
+            nextTask = targets[1];
+        }
+
+        if (nextTask) {
+            // Walk toward the task coordinate centers
+            let targetCenterX = nextTask.x + 15;
+            let targetCenterY = nextTask.y + 15;
+
+            if (enemy.x < targetCenterX) enemy.x += enemy.speed;
+            if (enemy.x > targetCenterX) enemy.x -= enemy.speed;
+            if (enemy.y < targetCenterY) enemy.y += enemy.speed;
+            if (enemy.y > targetCenterY) enemy.y -= enemy.speed;
+
+            // Check if the AI Bot successfully arrived at the task box
+            let aiDistX = Math.abs(enemy.x - targetCenterX);
+            let aiDistY = Math.abs(enemy.y - targetCenterY);
+            if (aiDistX < 20 && aiDistY < 20) {
+                nextTask.done = true;
+                nextTask.color = "#00E676"; // Panel turns Green!
+                
+                // If the bot finishes all tasks, the Impostor player loses!
+                if (targets[0].done && targets[1].done) {
+                    stopGame("DEFEAT! The Crewmate fixed all systems.");
+                }
+            }
+        }
+    }
+
+    // Touch Catch Detection Loop
+    let hitX = Math.abs(player.x - enemy.x);
+    let hitY = Math.abs(player.y - enemy.y);
+    if (hitX < 25 && hitY < 25) {
+        if (currentRole === "Crewmate") {
+            stopGame("DEFEAT! The Impostor caught you.");
+        } else {
+            stopGame("VICTORY! You intercepted the Crewmate.");
+        }
+    }
+}
+
+function drawGame() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    blocks.forEach(b => {
+        ctx.fillStyle = "#1c2331"; ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = "#45f3ff"; ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.fillStyle = "#8b949e"; ctx.font = "14px sans-serif";
+        ctx.fillText(b.name, b.x + 30, b.y + 80);
+    });
+
+    targets.forEach(t => {
+        ctx.fillStyle = t.color; ctx.fillRect(t.x, t.y, t.w, t.h);
+    });
+
+    // Draw Player Bubble
+    ctx.beginPath(); ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fillStyle = player.color; ctx.fill(); ctx.closePath();
+    ctx.beginPath(); ctx.ellipse(player.x + 4, player.y - 2, 5, 2.5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#E0F7FA"; ctx.fill(); ctx.closePath();
+
+    // Draw Bot Bubble
+    ctx.beginPath(); ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+    ctx.fillStyle = enemy.color; ctx.fill(); ctx.closePath();
+    ctx.beginPath(); ctx.ellipse(enemy.x - 4, enemy.y - 2, 5, 2.5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#E0F7FA"; ctx.fill(); ctx.closePath();
+}
+
+function stopGame(msg) {
+    isGameRunning = false;
+    setTimeout(function() {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.font = "bold 24px sans-serif"; ctx.fillStyle = "#ffffff"; ctx.textAlign = "center";
+        ctx.fillText(msg, canvas.width / 2, canvas.height / 2);
+        ctx.font = "14px sans-serif"; ctx.fillText("Press F5 to restart the match!", canvas.width / 2, canvas.height / 2 + 40);
+        ctx.textAlign = "left";
+    }, 50);
+}
+
+function gameLoop() {
+    if (!isGameRunning) return;
+    updateGame();
+    drawGame();
+    requestAnimationFrame(gameLoop);
+}
+</script>
+
+</body>
+</html>
